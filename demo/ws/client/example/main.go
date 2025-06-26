@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"log"
-	"sync"
 	"time"
 
 	"gitee.com/flycash/ws-gateway/demo/ws/client/internal"
@@ -17,11 +16,12 @@ func main() {
 	// 解析命令行参数
 	numClients := flag.Int("clients", 10, "客户端连接数量")
 	messagesPerSecond := flag.Int("mps", 1, "每秒发送消息数量")
-	testDuration := flag.Duration("duration", 1*time.Minute, "测试持续时间")
+	testDuration := flag.Duration("duration", 30*time.Second, "测试持续时间")
 	connectionTimeout := flag.Duration("conn-timeout", 10*time.Second, "连接超时时间")
 	messageSize := flag.Int("msg-size", 100, "消息大小(字节)")
 	serverURL := flag.String("server", "ws://localhost:50051/ws", "WebSocket服务器地址")
 	debugMode := flag.Bool("debug", false, "启用调试模式")
+	compressed := flag.Bool("compressed", true, "启用WebSocket压缩")
 	flag.Parse()
 
 	// 初始化统计信息
@@ -35,6 +35,7 @@ func main() {
 	log.Printf("  消息大小: %d 字节", *messageSize)
 	log.Printf("  服务器地址: %s", *serverURL)
 	log.Printf("  调试模式: %v", *debugMode)
+	log.Printf("  压缩模式: %v", *compressed)
 
 	// 创建测试上下文
 	testCtx, testCancel := context.WithTimeout(context.Background(), *testDuration)
@@ -44,7 +45,7 @@ func main() {
 	testMessage := generateTestMessage(*messageSize)
 
 	// 创建并启动客户端
-	clients := createAndStartClients(testCtx, *numClients, *serverURL, *connectionTimeout, *messagesPerSecond, testMessage, *debugMode)
+	clients := createAndStartClients(testCtx, *numClients, *serverURL, *connectionTimeout, *messagesPerSecond, testMessage, *compressed)
 
 	// 启动统计信息打印
 	go printStatsPeriodically(testCtx)
@@ -62,56 +63,38 @@ func main() {
 }
 
 // createAndStartClients 创建并启动所有客户端
-func createAndStartClients(ctx context.Context, numClients int, serverURL string, connectionTimeout time.Duration, messagesPerSecond int, testMessage string, debugMode bool) []*internal.WebSocketClient {
+func createAndStartClients(ctx context.Context, numClients int, serverURL string, connectionTimeout time.Duration, messagesPerSecond int, testMessage string, compressed bool) []*internal.WebSocketClient {
 	clients := make([]*internal.WebSocketClient, 0, numClients)
-	clientsMutex := &sync.Mutex{} // 保护clients切片的并发访问
 
 	log.Printf("开始建立 %d 个客户端连接...", numClients)
 	connectionStart := time.Now()
 
-	var wg sync.WaitGroup
-
 	for i := 0; i < numClients; i++ {
-		wg.Add(1)
-		go func(clientIndex int) {
-			defer wg.Done()
+		userID := int64(10000 + i)
+		bizID := int64(9999)
 
-			userID := int64(10000 + clientIndex)
-			bizID := int64(9999)
+		// 创建客户端
+		client := internal.NewWebSocketClient(serverURL, bizID, userID, stats, compressed)
 
-			// 创建客户端
-			client := internal.NewWebSocketClient(serverURL, bizID, userID, stats)
-
-			// 设置调试模式
-			client.SetDebug(debugMode)
-
-			// 建立连接
-			connCtx, connCancel := context.WithTimeout(context.Background(), connectionTimeout)
-			if err := client.Connect(connCtx); err != nil {
-				log.Printf("客户端 %d 连接失败: %v", clientIndex, err)
-				connCancel()
-				return
-			}
+		// 建立连接
+		connCtx, connCancel := context.WithTimeout(ctx, connectionTimeout)
+		if err := client.Connect(connCtx); err != nil {
+			log.Printf("客户端 %d 连接失败: %v", i, err)
 			connCancel()
+			continue
+		}
+		connCancel()
 
-			// 启动客户端
-			if err := client.Start(ctx, messagesPerSecond, testMessage); err != nil {
-				log.Printf("客户端 %d 启动失败: %v", clientIndex, err)
-				client.Stop()
-				return
-			}
+		// 启动客户端
+		if err := client.Start(ctx, messagesPerSecond, testMessage); err != nil {
+			log.Printf("客户端 %d 启动失败: %v", i, err)
+			client.Stop()
+			continue
+		}
 
-			// 线程安全地添加到clients切片
-			clientsMutex.Lock()
-			clients = append(clients, client)
-			clientsMutex.Unlock()
-
-			log.Printf("客户端 %d 启动成功", clientIndex)
-		}(i)
+		clients = append(clients, client)
+		log.Printf("客户端 %d 启动成功", i)
 	}
-
-	// 等待所有goroutine完成
-	wg.Wait()
 
 	connectionDuration := time.Since(connectionStart)
 	log.Printf("连接建立完成，耗时: %v，成功连接: %d", connectionDuration, len(clients))

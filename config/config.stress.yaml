@@ -36,7 +36,7 @@ server:
     weight: 1
     labels:
       - "core"
-    capacity: &cap 10
+    capacity: &cap 1000000000
     # 序列化协议：支持 json, proto
     serializer: "json"
     compression:
@@ -71,7 +71,7 @@ server:
         retryInterval: 1000000000
         maxRetries: 3
     tokenLimiter:
-      initialCapacity: 1
+      initialCapacity: 1000000000
       maxCapacity: *cap
       increaseStep: 1
       increaseInterval: 2000000000

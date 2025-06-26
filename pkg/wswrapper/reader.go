@@ -41,6 +41,7 @@ func NewServerSideReader(conn net.Conn) *Reader {
 func NewClientSideReader(conn net.Conn) *Reader {
 	messageState := &wsflate.MessageState{}
 	controlHandler := wsutil.ControlFrameHandler(conn, ws.StateClientSide)
+
 	return &Reader{
 		conn: conn,
 		reader: &wsutil.Reader{
