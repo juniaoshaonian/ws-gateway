@@ -1,19 +1,17 @@
 log:
-  debug: true
+  level: "error"
 
 redis:
-  # redis 服务的地址
-  addr: "redis:6379"
+  addr: "localhost:6379"
 
 mq:
   kafka:
     network: "tcp"
-    addr: "kafka:9094" # 注意: docker-compose 里 kafka 内部端口是 9094
+    addr: "localhost:9092"
 
 etcd:
   addrs:
-    # etcd 地址也从环境变量获取
-    - "etcd:2379"
+    - "127.0.0.1:2379"
   connectTimeout: "1s"
   secure: false
 
@@ -22,6 +20,8 @@ cache:
     capacity: 1000000
   requestTimeout: 3000000000
   valueExpiration: 600000000000
+
+
 
 server:
   webhook:
@@ -32,7 +32,7 @@ server:
     port: 9003
   websocket:
     host: "0.0.0.0"
-    port: 9002
+    port: 50051
     weight: 1
     labels:
       - "core"
@@ -58,8 +58,8 @@ server:
       key: "1234567890abcdef1234567890abcdef"  # ChaCha20/AES-256需要32字节密钥
       iv: ""  # 初始化向量，留空时自动生成
     autoCloseLink:
-      idleTimeout: 1000000000000
-      idleScanInterval: 500000000000
+      idleTimeout: 10000000000000
+      idleScanInterval: 5000000000000
     gracefulCloseTimeout: 30000000000
     registry:
       updateNodeStateInterval: 5000000000
@@ -79,8 +79,8 @@ server:
       initialInterval: 1000000000
       maxInterval: 3000000000
     limit:
-      rate: 1 # 每秒请求数
-      burst: 2 # 令牌桶容量
+      rate: 10000000 # 每秒请求数
+      burst: 20000000 # 令牌桶容量
 
 backend:
   services:
@@ -124,3 +124,5 @@ link:
 # Docker 扩容配置
 docker:
   compose_project: "ws-gateway"
+
+

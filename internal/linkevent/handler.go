@@ -190,6 +190,7 @@ func (l *Handler) getMessage(payload []byte) (*apiv1.Message, error) {
 			elog.Any("codecHelper", l.codecHelper.Name()),
 			elog.String("消息体", msg.String()),
 			elog.FieldErr(err),
+			elog.Any("payload", string(payload)),
 		)
 		return nil, fmt.Errorf("%w", ErrUnKnownFrontendMessageFormat)
 	}

@@ -342,11 +342,11 @@ func (l *Link) TryCloseIfIdle(timeout time.Duration) bool {
 	if l.ctx.Err() != nil {
 		return true
 	}
+
 	//  未设置自动关闭或者活跃时间不超过空闲超时，不需要关闭
 	if !l.autoClose || time.Since(l.lastActiveTime) <= timeout {
 		return false
 	}
-
 	// 执行关闭逻辑
 	if err := l.Close(); err != nil {
 		l.logger.Error("关闭空闲连接失败",
