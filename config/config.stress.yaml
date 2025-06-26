@@ -1,5 +1,5 @@
 log:
-  level: "error"
+  debug: true
 
 redis:
   addr: "localhost:6379"

@@ -23,7 +23,7 @@ const (
 )
 
 // 运行要加上 --config=config/config.yaml
-// 并且可以开启环境变量 EGO_DEBUG=true
+// 并且可以开启环境变量
 func main() {
 	stopTimeout := DefaultStopTimeout
 	n, err := strconv.ParseInt(os.Getenv("GATEWAY_STOP_TIMEOUT"), 10, 64)

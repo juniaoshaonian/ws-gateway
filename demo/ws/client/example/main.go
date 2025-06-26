@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"sync"
 	"time"
 
 	"gitee.com/flycash/ws-gateway/demo/ws/client/internal"
@@ -63,39 +64,54 @@ func main() {
 // createAndStartClients 创建并启动所有客户端
 func createAndStartClients(ctx context.Context, numClients int, serverURL string, connectionTimeout time.Duration, messagesPerSecond int, testMessage string, debugMode bool) []*internal.WebSocketClient {
 	clients := make([]*internal.WebSocketClient, 0, numClients)
+	clientsMutex := &sync.Mutex{} // 保护clients切片的并发访问
 
 	log.Printf("开始建立 %d 个客户端连接...", numClients)
 	connectionStart := time.Now()
 
+	var wg sync.WaitGroup
+
 	for i := 0; i < numClients; i++ {
-		userID := int64(10000 + i)
-		bizID := int64(9999)
+		wg.Add(1)
+		go func(clientIndex int) {
+			defer wg.Done()
 
-		// 创建客户端
-		client := internal.NewWebSocketClient(serverURL, bizID, userID, stats)
+			userID := int64(10000 + clientIndex)
+			bizID := int64(9999)
 
-		// 设置调试模式
-		client.SetDebug(debugMode)
+			// 创建客户端
+			client := internal.NewWebSocketClient(serverURL, bizID, userID, stats)
 
-		// 建立连接
-		connCtx, connCancel := context.WithTimeout(context.Background(), connectionTimeout)
-		if err := client.Connect(connCtx); err != nil {
-			log.Printf("客户端 %d 连接失败: %v", i, err)
+			// 设置调试模式
+			client.SetDebug(debugMode)
+
+			// 建立连接
+			connCtx, connCancel := context.WithTimeout(context.Background(), connectionTimeout)
+			if err := client.Connect(connCtx); err != nil {
+				log.Printf("客户端 %d 连接失败: %v", clientIndex, err)
+				connCancel()
+				return
+			}
 			connCancel()
-			continue
-		}
-		connCancel()
 
-		// 启动客户端
-		if err := client.Start(ctx, messagesPerSecond, testMessage); err != nil {
-			log.Printf("客户端 %d 启动失败: %v", i, err)
-			client.Stop()
-			continue
-		}
+			// 启动客户端
+			if err := client.Start(ctx, messagesPerSecond, testMessage); err != nil {
+				log.Printf("客户端 %d 启动失败: %v", clientIndex, err)
+				client.Stop()
+				return
+			}
 
-		clients = append(clients, client)
-		log.Printf("客户端 %d 启动成功", i)
+			// 线程安全地添加到clients切片
+			clientsMutex.Lock()
+			clients = append(clients, client)
+			clientsMutex.Unlock()
+
+			log.Printf("客户端 %d 启动成功", clientIndex)
+		}(i)
 	}
+
+	// 等待所有goroutine完成
+	wg.Wait()
 
 	connectionDuration := time.Since(connectionStart)
 	log.Printf("连接建立完成，耗时: %v，成功连接: %d", connectionDuration, len(clients))

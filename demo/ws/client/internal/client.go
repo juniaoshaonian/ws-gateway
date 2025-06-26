@@ -253,7 +253,6 @@ func (c *WebSocketClient) monitorConnection(ctx context.Context) {
 			if c.conn == nil {
 				continue
 			}
-
 			// 检查连接是否还活着
 			if !c.isConnectionAlive() {
 				c.reconnect(ctx)
@@ -302,7 +301,7 @@ func (c *WebSocketClient) reconnect(ctx context.Context) {
 		time.Sleep(retryDelay)
 
 		// 尝试重新连接
-		connCtx, connCancel := context.WithTimeout(ctx, 5*time.Second)
+		connCtx, connCancel := context.WithTimeout(ctx, 10*time.Second)
 		err := c.Connect(connCtx)
 		connCancel()
 
@@ -642,28 +641,6 @@ func (c *WebSocketClient) receiveMessageWithTimeout(ctx context.Context) (*apiv1
 	case <-ctx.Done():
 		return nil, fmt.Errorf("接收消息超时: %v", ctx.Err())
 	}
-}
-
-// Run 运行客户端示例（需要上层先建立连接）
-func Run() {
-	// 注意：这里需要上层先建立WebSocket连接
-	// 示例代码，实际使用时需要先建立连接
-	log.Printf("请先建立WebSocket连接，然后传入连接对象")
-
-	// 示例：如何建立连接并创建客户端
-	/*
-		// 建立WebSocket连接
-		conn, _, _, err := ws.Dial(context.Background(), "ws://localhost:9002/ws?token=xxx")
-		if err != nil {
-			log.Fatalf("连接WebSocket失败: %v", err)
-		}
-
-		// 创建客户端
-		client := NewWebSocketClient(conn, 9999, 12345)
-
-		// 运行通信流程
-		client.RunCommunicationFlow()
-	*/
 }
 
 // SetDebug 设置调试模式
