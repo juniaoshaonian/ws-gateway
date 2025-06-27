@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"sync"
 	"time"
 
 	"gitee.com/flycash/ws-gateway/demo/ws/client/internal"
@@ -65,35 +66,67 @@ func main() {
 // createAndStartClients 创建并启动所有客户端
 func createAndStartClients(ctx context.Context, numClients int, serverURL string, connectionTimeout time.Duration, messagesPerSecond int, testMessage string, compressed bool) []*internal.WebSocketClient {
 	clients := make([]*internal.WebSocketClient, 0, numClients)
+	clientsMutex := &sync.Mutex{}
 
 	log.Printf("开始建立 %d 个客户端连接...", numClients)
 	connectionStart := time.Now()
 
-	for i := 0; i < numClients; i++ {
-		userID := int64(10000 + i)
-		bizID := int64(9999)
+	// 每批启动的客户端数量
+	batchSize := 100
+	totalBatches := (numClients + batchSize - 1) / batchSize
 
-		// 创建客户端
-		client := internal.NewWebSocketClient(serverURL, bizID, userID, stats, compressed)
-
-		// 建立连接
-		connCtx, connCancel := context.WithTimeout(ctx, connectionTimeout)
-		if err := client.Connect(connCtx); err != nil {
-			log.Printf("客户端 %d 连接失败: %v", i, err)
-			connCancel()
-			continue
-		}
-		connCancel()
-
-		// 启动客户端
-		if err := client.Start(ctx, messagesPerSecond, testMessage); err != nil {
-			log.Printf("客户端 %d 启动失败: %v", i, err)
-			client.Stop()
-			continue
+	for batch := 0; batch < totalBatches; batch++ {
+		startIdx := batch * batchSize
+		endIdx := (batch + 1) * batchSize
+		if endIdx > numClients {
+			endIdx = numClients
 		}
 
-		clients = append(clients, client)
-		log.Printf("客户端 %d 启动成功", i)
+		batchSize := endIdx - startIdx
+		log.Printf("启动第 %d 批客户端 (索引 %d-%d，共 %d 个)...", batch+1, startIdx, endIdx-1, batchSize)
+
+		// 使用 WaitGroup 等待当前批次的所有客户端启动完成
+		var wg sync.WaitGroup
+		wg.Add(batchSize)
+
+		for i := startIdx; i < endIdx; i++ {
+			go func(clientIndex int) {
+				defer wg.Done()
+
+				userID := int64(10000 + clientIndex)
+				bizID := int64(9999)
+
+				// 创建客户端
+				client := internal.NewWebSocketClient(serverURL, bizID, userID, stats, compressed)
+
+				// 建立连接
+				connCtx, connCancel := context.WithTimeout(ctx, connectionTimeout)
+				if err := client.Connect(connCtx); err != nil {
+					log.Printf("客户端 %d 连接失败: %v", clientIndex, err)
+					connCancel()
+					return
+				}
+				connCancel()
+
+				// 启动客户端
+				if err := client.Start(ctx, messagesPerSecond, testMessage); err != nil {
+					log.Printf("客户端 %d 启动失败: %v", clientIndex, err)
+					client.Stop()
+					return
+				}
+
+				// 线程安全地添加到客户端列表
+				clientsMutex.Lock()
+				clients = append(clients, client)
+				clientsMutex.Unlock()
+
+				log.Printf("客户端 %d 启动成功", clientIndex)
+			}(i)
+		}
+
+		// 等待当前批次的所有客户端启动完成
+		wg.Wait()
+		log.Printf("第 %d 批客户端启动完成", batch+1)
 	}
 
 	connectionDuration := time.Since(connectionStart)
