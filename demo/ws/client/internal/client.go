@@ -162,7 +162,7 @@ func isConnectionError(err error) bool {
 
 // SendMessage 发送消息并上报统计
 func (c *WebSocketClient) SendMessage(ctx context.Context, content string) error {
-	ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	err := c.SendUpstreamMessage(ctx, content)
 	c.stats.IncrementMessages(err == nil)
