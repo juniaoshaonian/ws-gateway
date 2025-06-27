@@ -41,7 +41,7 @@ server:
     serializer: "json"
     compression:
       # 是否启用 permessage-deflate 压缩扩展
-      enabled: true
+      enabled: false
       # 服务端压缩时使用的滑动窗口大小 取值范围: 8-15= 2^8 - 2^15 = 256B - 32KB
       serverMaxWindow: 15
       # 客户端压缩时使用的滑动窗口大小 取值范围: 8-15= 2^8 - 2^15 = 256B - 32KB

@@ -11,6 +11,7 @@ import (
 	"github.com/gotomicro/ego/server"
 	"github.com/gotomicro/ego/server/egovernor"
 	"log"
+	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"strconv"
@@ -25,6 +26,9 @@ const (
 // 运行要加上 --config=config/config.yaml
 // 并且可以开启环境变量
 func main() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	stopTimeout := DefaultStopTimeout
 	n, err := strconv.ParseInt(os.Getenv("GATEWAY_STOP_TIMEOUT"), 10, 64)
 	if err == nil {
