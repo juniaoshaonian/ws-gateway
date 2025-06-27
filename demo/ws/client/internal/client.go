@@ -35,6 +35,7 @@ type WebSocketClient struct {
 	once           sync.Once
 	stopChan       chan struct{}
 	compressed     bool
+	connMutex      sync.RWMutex // 保护连接状态的互斥锁
 }
 
 // NewWebSocketClient 创建新的WebSocket客户端
@@ -93,6 +94,7 @@ func (c *WebSocketClient) Connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("连接失败: %v", err)
 	}
+
 	c.conn = conn
 	return nil
 }
@@ -129,10 +131,6 @@ func (c *WebSocketClient) Start(ctx context.Context, messagesPerSecond int, test
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// 检查连接状态
-				if c.conn == nil {
-					return
-				}
 				if err := c.SendMessage(ctx, testMessage); err != nil {
 					log.Printf("用户 %d 发送消息失败: %v", c.userID, err)
 					// 如果是连接错误，停止发送
@@ -164,10 +162,6 @@ func isConnectionError(err error) bool {
 
 // SendMessage 发送消息并上报统计
 func (c *WebSocketClient) SendMessage(ctx context.Context, content string) error {
-	// 检查连接状态
-	if c.conn == nil {
-		return fmt.Errorf("连接已断开")
-	}
 	err := c.SendUpstreamMessage(ctx, content)
 	c.stats.IncrementMessages(err == nil)
 	return err
@@ -180,10 +174,13 @@ func (c *WebSocketClient) Stop() {
 		close(c.stopChan)
 		// 等待所有goroutine结束
 		c.wg.Wait()
-		// 关闭连接
+		// 线程安全地关闭连接
+		c.connMutex.Lock()
 		if c.conn != nil {
 			c.conn.Close()
+			c.conn = nil
 		}
+		c.connMutex.Unlock()
 	})
 }
 
@@ -191,10 +188,6 @@ func (c *WebSocketClient) Stop() {
 func (c *WebSocketClient) startMessageLoop(ctx context.Context) error {
 	// 启动心跳
 	c.startHeartbeat(ctx)
-
-	// 启动连接监控
-	go c.monitorConnection(ctx)
-
 	// 等待停止信号或上下文取消
 	select {
 	case <-c.stopChan:
@@ -205,65 +198,18 @@ func (c *WebSocketClient) startMessageLoop(ctx context.Context) error {
 	return nil
 }
 
-// monitorConnection 监控连接状态
-func (c *WebSocketClient) monitorConnection(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-c.stopChan:
-			return
-		case <-ticker.C:
-			if c.conn == nil {
-				continue
-			}
-			// 检查连接是否还活着
-			if !c.isConnectionAlive() {
-				c.reconnect(ctx)
-			}
-		}
-	}
-}
-
-// isConnectionAlive 检查连接是否还活着
-func (c *WebSocketClient) isConnectionAlive() bool {
-	if c.conn == nil {
-		return false
-	}
-
-	// 尝试发送一个ping帧来检测连接状态
-	// 这里我们使用一个简单的方法：检查连接是否可写
-	deadline := time.Now().Add(100 * time.Millisecond)
-	if err := c.conn.SetWriteDeadline(deadline); err != nil {
-		return false
-	}
-
-	// 尝试写入一个空字节来检测连接状态
-	_, err := c.conn.Write([]byte{})
-	if err != nil {
-		return false
-	}
-
-	// 重置写超时
-	c.conn.SetWriteDeadline(time.Time{})
-	return true
-}
-
 // reconnect 尝试重新连接
 func (c *WebSocketClient) reconnect(ctx context.Context) {
 	maxRetries := 3
 	retryDelay := time.Second
 
 	for i := 0; i < maxRetries; i++ {
-		// 关闭旧连接
+		// 线程安全地关闭旧连接
+		c.connMutex.Lock()
 		if c.conn != nil {
 			c.conn.Close()
 			c.conn = nil
 		}
-
 		// 等待一段时间再重连
 		time.Sleep(retryDelay)
 
@@ -271,6 +217,7 @@ func (c *WebSocketClient) reconnect(ctx context.Context) {
 		connCtx, connCancel := context.WithTimeout(ctx, 10*time.Second)
 		err := c.Connect(connCtx)
 		connCancel()
+		c.connMutex.Unlock()
 
 		if err == nil {
 			return
@@ -381,8 +328,14 @@ func generateUniqueKey() string {
 	return fmt.Sprintf("%x", b)
 }
 
-// sendMessage 发送消息
-func (c *WebSocketClient) sendMessage(msg *apiv1.Message) error {
+// sendMessageSafe 并发安全的消息发送接口
+func (c *WebSocketClient) sendMessageSafe(msg *apiv1.Message) error {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	if c.conn == nil {
+		return fmt.Errorf("连接关闭")
+	}
+
 	// 序列化消息
 	payload, err := c.codec.Marshal(msg)
 	if err != nil {
@@ -399,8 +352,18 @@ func (c *WebSocketClient) sendMessage(msg *apiv1.Message) error {
 	return nil
 }
 
+// sendMessage 发送消息（内部方法，已废弃，请使用sendMessageSafe）
+func (c *WebSocketClient) sendMessage(msg *apiv1.Message) error {
+	return c.sendMessageSafe(msg)
+}
+
 // receiveMessage 接收消息
 func (c *WebSocketClient) receiveMessage() (*apiv1.Message, error) {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	if c.conn == nil {
+		return nil, fmt.Errorf("连接关闭")
+	}
 	// 读取消息 - 使用标准的WebSocket读取方式
 	payload, _, err := wsutil.ReadServerData(c.conn)
 	if err != nil {
@@ -426,7 +389,7 @@ func (c *WebSocketClient) handleMessage(msg *apiv1.Message) error {
 	case apiv1.Message_COMMAND_TYPE_DOWNSTREAM_MESSAGE:
 		// 发送下行确认
 		ackMsg := c.generateDownstreamAck(msg.GetKey())
-		return c.sendMessage(ackMsg)
+		return c.sendMessageSafe(ackMsg)
 
 	case apiv1.Message_COMMAND_TYPE_HEARTBEAT:
 		// 心跳消息不打印日志
@@ -440,11 +403,6 @@ func (c *WebSocketClient) handleMessage(msg *apiv1.Message) error {
 
 // SendUpstreamMessage 发送上行消息并等待确认
 func (c *WebSocketClient) SendUpstreamMessage(ctx context.Context, content string) error {
-	// 检查连接状态
-	if c.conn == nil {
-		return fmt.Errorf("连接已断开")
-	}
-
 	// 生成上行消息
 	msg, err := c.generateUpstreamMessage(content)
 	if err != nil {
@@ -452,7 +410,7 @@ func (c *WebSocketClient) SendUpstreamMessage(ctx context.Context, content strin
 	}
 
 	// 发送消息
-	err = c.sendMessage(msg)
+	err = c.sendMessageSafe(msg)
 	if err != nil {
 		return fmt.Errorf("发送上行消息失败: %v", err)
 	}
@@ -485,8 +443,7 @@ func (c *WebSocketClient) startHeartbeat(ctx context.Context) {
 			select {
 			case <-ticker.C:
 				heartbeat := c.generateHeartbeat()
-				if err := c.sendMessage(heartbeat); err != nil {
-
+				if err := c.sendMessageSafe(heartbeat); err != nil {
 					return
 				}
 			case <-c.stopChan:
