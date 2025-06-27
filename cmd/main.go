@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"syscall"
 	"time"
-
+	_ "net/http/pprof"
 	gateway "gitee.com/flycash/ws-gateway"
 	apiv1 "gitee.com/flycash/ws-gateway/api/proto/gen/gatewayapi/v1"
 	"gitee.com/flycash/ws-gateway/cmd/ioc"

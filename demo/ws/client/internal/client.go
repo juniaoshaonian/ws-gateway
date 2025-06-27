@@ -188,47 +188,10 @@ func (c *WebSocketClient) Stop() {
 func (c *WebSocketClient) startMessageLoop(ctx context.Context) error {
 	// 启动心跳
 	c.startHeartbeat(ctx)
-	// 等待停止信号或上下文取消
-	select {
-	case <-c.stopChan:
-	case <-ctx.Done():
-		c.Stop()
-	}
-
 	return nil
 }
 
-// reconnect 尝试重新连接
-func (c *WebSocketClient) reconnect(ctx context.Context) {
-	maxRetries := 3
-	retryDelay := time.Second
 
-	for i := 0; i < maxRetries; i++ {
-		// 线程安全地关闭旧连接
-		c.connMutex.Lock()
-		if c.conn != nil {
-			c.conn.Close()
-			c.conn = nil
-		}
-		// 等待一段时间再重连
-		time.Sleep(retryDelay)
-
-		// 尝试重新连接
-		connCtx, connCancel := context.WithTimeout(ctx, 10*time.Second)
-		err := c.Connect(connCtx)
-		connCancel()
-		c.connMutex.Unlock()
-
-		if err == nil {
-			return
-		}
-
-		log.Printf("客户端 %d 重连失败: %v", c.userID, err)
-		retryDelay *= 2 // 指数退避
-	}
-
-	log.Printf("客户端 %d 重连失败，已达到最大重试次数", c.userID)
-}
 
 // sanitizeMessageContent 清理和验证消息内容
 func (c *WebSocketClient) sanitizeMessageContent(content string) (string, error) {

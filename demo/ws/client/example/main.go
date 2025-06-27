@@ -174,11 +174,10 @@ func generateTestMessage(size int) string {
 
 // printStats 打印统计信息
 func printStats() {
-	totalConn, activeConn, totalMsg, successMsg, failedMsg, duration := stats.GetStats()
+totalConn, _, totalMsg, successMsg, failedMsg, duration := stats.GetStats()
 
 	log.Printf("=== 统计信息 ===")
 	log.Printf("总连接数: %d", totalConn)
-	log.Printf("活跃连接数: %d", activeConn)
 	log.Printf("总消息数: %d", totalMsg)
 	log.Printf("成功消息数: %d", successMsg)
 	log.Printf("失败消息数: %d", failedMsg)
