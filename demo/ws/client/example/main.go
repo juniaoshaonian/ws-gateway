@@ -63,7 +63,7 @@ func main() {
 	log.Printf("WebSocket压力测试完成")
 }
 
-// createAndStartClients 创建并启动所有客户端
+// createAndStartClients 创建客户端，先建立所有连接，然后统一启动消息发送
 func createAndStartClients(ctx context.Context, numClients int, serverURL string, connectionTimeout time.Duration, messagesPerSecond int, testMessage string, compressed bool) []*internal.WebSocketClient {
 	clients := make([]*internal.WebSocketClient, 0, numClients)
 	clientsMutex := &sync.Mutex{}
@@ -71,6 +71,7 @@ func createAndStartClients(ctx context.Context, numClients int, serverURL string
 	log.Printf("开始建立 %d 个客户端连接...", numClients)
 	connectionStart := time.Now()
 
+	// 第一阶段：建立所有连接
 	// 每批启动的客户端数量
 	batchSize := 100
 	totalBatches := (numClients + batchSize - 1) / batchSize
@@ -83,9 +84,9 @@ func createAndStartClients(ctx context.Context, numClients int, serverURL string
 		}
 
 		batchSize := endIdx - startIdx
-		log.Printf("启动第 %d 批客户端 (索引 %d-%d，共 %d 个)...", batch+1, startIdx, endIdx-1, batchSize)
+		log.Printf("建立第 %d 批连接 (索引 %d-%d，共 %d 个)...", batch+1, startIdx, endIdx-1, batchSize)
 
-		// 使用 WaitGroup 等待当前批次的所有客户端启动完成
+		// 使用 WaitGroup 等待当前批次的所有客户端连接完成
 		var wg sync.WaitGroup
 		wg.Add(batchSize)
 
@@ -108,29 +109,49 @@ func createAndStartClients(ctx context.Context, numClients int, serverURL string
 				}
 				connCancel()
 
-				// 启动客户端
-				if err := client.Start(ctx, messagesPerSecond, testMessage); err != nil {
-					log.Printf("客户端 %d 启动失败: %v", clientIndex, err)
-					client.Stop()
-					return
-				}
-
 				// 线程安全地添加到客户端列表
 				clientsMutex.Lock()
 				clients = append(clients, client)
 				clientsMutex.Unlock()
 
-				log.Printf("客户端 %d 启动成功", clientIndex)
+				log.Printf("客户端 %d 连接成功", clientIndex)
 			}(i)
 		}
 
-		// 等待当前批次的所有客户端启动完成
+		// 等待当前批次的所有客户端连接完成
 		wg.Wait()
-		log.Printf("第 %d 批客户端启动完成", batch+1)
+		log.Printf("第 %d 批连接建立完成", batch+1)
 	}
 
 	connectionDuration := time.Since(connectionStart)
-	log.Printf("连接建立完成，耗时: %v，成功连接: %d", connectionDuration, len(clients))
+	log.Printf("所有连接建立完成，耗时: %v，成功连接: %d", connectionDuration, len(clients))
+
+	// 第二阶段：启动所有客户端的消息发送
+	log.Printf("开始启动所有客户端的消息发送...")
+	startTime := time.Now()
+
+	var startWg sync.WaitGroup
+	startWg.Add(len(clients))
+
+	for i, client := range clients {
+		go func(clientIndex int, client *internal.WebSocketClient) {
+			defer startWg.Done()
+
+			// 启动客户端消息发送
+			if err := client.Start(ctx, messagesPerSecond, testMessage); err != nil {
+				log.Printf("客户端 %d 启动失败: %v", clientIndex, err)
+				client.Stop()
+				return
+			}
+
+			log.Printf("客户端 %d 消息发送启动成功", clientIndex)
+		}(i, client)
+	}
+
+	// 等待所有客户端启动完成
+	startWg.Wait()
+	startDuration := time.Since(startTime)
+	log.Printf("所有客户端消息发送启动完成，耗时: %v", startDuration)
 
 	return clients
 }
@@ -174,7 +195,7 @@ func generateTestMessage(size int) string {
 
 // printStats 打印统计信息
 func printStats() {
-totalConn, _, totalMsg, successMsg, failedMsg, duration := stats.GetStats()
+	totalConn, _, totalMsg, successMsg, failedMsg, duration := stats.GetStats()
 
 	log.Printf("=== 统计信息 ===")
 	log.Printf("总连接数: %d", totalConn)
