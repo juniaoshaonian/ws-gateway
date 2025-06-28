@@ -132,7 +132,6 @@ func (c *WebSocketClient) Start(ctx context.Context, messagesPerSecond int, test
 				return
 			case <-ticker.C:
 				if err := c.SendMessage(ctx, testMessage); err != nil {
-					log.Printf("用户 %d 发送消息失败: %v", c.userID, err)
 					// 如果是连接错误，停止发送
 					if isConnectionError(err) {
 						return
