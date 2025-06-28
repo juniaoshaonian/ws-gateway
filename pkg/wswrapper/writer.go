@@ -1,12 +1,11 @@
 package wswrapper
 
 import (
-	"io"
-	"log"
-
+	"compress/flate"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsflate"
 	"github.com/gobwas/ws/wsutil"
+	"io"
 )
 
 type Writer struct {
@@ -23,10 +22,12 @@ func NewServerSideWriter(dest io.Writer, compressed bool) *Writer {
 	w := &Writer{
 		writer:       wsutil.NewWriter(dest, state, opCode),
 		messageState: &messageState,
-		//flateWriter: wsflate.NewWriter(nil, func(w io.Writer) wsflate.Compressor {
-		//	f, _ := flate.NewWriter(w, flate.DefaultCompression)
-		//	return f
-		//}),
+	}
+	if compressed {
+		w.flateWriter = wsflate.NewWriter(nil, func(w io.Writer) wsflate.Compressor {
+			f, _ := flate.NewWriter(w, flate.BestCompression)
+			return f
+		})
 	}
 	w.writer.SetExtensions(&messageState)
 	return w
@@ -41,7 +42,6 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 
 // writeCompressed 写入压缩消息
 func (w *Writer) writeCompressed(p []byte) (n int, err error) {
-	log.Println("xxxxxxxxx")
 	w.flateWriter.Reset(w.writer)
 
 	// 写入压缩数据
