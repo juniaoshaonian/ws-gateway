@@ -64,6 +64,8 @@ func (u *Upgrader) Upgrade(conn net.Conn) (session.Session, *compression.State, 
 	}
 
 	upgrader := ws.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
 		Negotiate: func(opt httphead.Option) (httphead.Option, error) {
 			if ext != nil {
 				return ext.Negotiate(opt)
