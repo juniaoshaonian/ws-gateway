@@ -1,6 +1,14 @@
 package main
 
 import (
+	"log"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"strconv"
+	"syscall"
+	"time"
+
 	gateway "gitee.com/flycash/ws-gateway"
 	apiv1 "gitee.com/flycash/ws-gateway/api/proto/gen/gatewayapi/v1"
 	"gitee.com/flycash/ws-gateway/cmd/ioc"
@@ -10,13 +18,6 @@ import (
 	"github.com/gotomicro/ego/core/elog"
 	"github.com/gotomicro/ego/server"
 	"github.com/gotomicro/ego/server/egovernor"
-	"log"
-	"net/http"
-	_ "net/http/pprof"
-	"os"
-	"strconv"
-	"syscall"
-	"time"
 )
 
 const (
